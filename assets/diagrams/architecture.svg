@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 580" font-family="-apple-system, system-ui, sans-serif" font-size="14">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#003262"/>
+    </marker>
+    <style>
+      .box { fill: #f6f8fa; stroke: #003262; stroke-width: 1.5; rx: 10; ry: 10; }
+      .box-accent { fill: #FFF8E1; stroke: #FDB515; }
+      .box-hw { fill: #EEF4FA; stroke: #003262; stroke-dasharray: 5 4; }
+      .label { font-weight: 600; fill: #003262; }
+      .sub { fill: #5a6470; font-size: 12px; }
+      .edge { stroke: #003262; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .edge-label { fill: #5a6470; font-size: 11px; font-family: ui-monospace, Menlo, monospace; }
+    </style>
+  </defs>
+
+  <!-- ===== Sensor (left column) ===== -->
+  <rect class="box box-hw" x="30" y="220" width="180" height="80"/>
+  <text class="label" x="120" y="250" text-anchor="middle">RealSense D-series</text>
+  <text class="sub"   x="120" y="270" text-anchor="middle">RGB + depth</text>
+  <text class="sub"   x="120" y="287" text-anchor="middle">+ point cloud</text>
+
+  <!-- ===== Perception modules (middle column) ===== -->
+  <rect class="box" x="250" y="110" width="240" height="100"/>
+  <text class="label" x="370" y="142" text-anchor="middle">perception</text>
+  <text class="sub"   x="370" y="164" text-anchor="middle">filter cloud → /cube_pose</text>
+  <text class="sub"   x="370" y="184" text-anchor="middle">VLM → /vlm_answer</text>
+
+  <rect class="box" x="250" y="250" width="240" height="100"/>
+  <text class="label" x="370" y="282" text-anchor="middle">ros2_aruco</text>
+  <text class="sub"   x="370" y="304" text-anchor="middle">whiteboard fiducials</text>
+  <text class="sub"   x="370" y="324" text-anchor="middle">→ /aruco_markers</text>
+
+  <!-- ===== Planning (top right) ===== -->
+  <rect class="box" x="590" y="30" width="240" height="80"/>
+  <text class="label" x="710" y="60" text-anchor="middle">planning</text>
+  <text class="sub"   x="710" y="82" text-anchor="middle">MoveIt IK + motion plans</text>
+
+  <!-- ===== Orchestrator (right column, center) ===== -->
+  <rect class="box box-accent" x="590" y="180" width="240" height="120"/>
+  <text class="label" x="710" y="215" text-anchor="middle">visual_servoing</text>
+  <text class="sub"   x="710" y="237" text-anchor="middle">orchestrator</text>
+  <text class="sub"   x="710" y="258" text-anchor="middle">sense → grasp → write</text>
+  <text class="sub"   x="710" y="278" text-anchor="middle">stroke sequence per digit</text>
+
+  <!-- ===== Controllers ===== -->
+  <rect class="box box-hw" x="590" y="340" width="240" height="80"/>
+  <text class="label" x="710" y="370" text-anchor="middle">UR7e controllers</text>
+  <text class="sub"   x="710" y="392" text-anchor="middle">FollowJointTrajectory action</text>
+
+  <!-- ===== Arm ===== -->
+  <rect class="box box-hw" x="590" y="460" width="240" height="80"/>
+  <text class="label" x="710" y="490" text-anchor="middle">UR7e + gripper</text>
+  <text class="sub"   x="710" y="512" text-anchor="middle">6-DoF arm, parallel gripper</text>
+
+  <!-- ===== Edges ===== -->
+
+  <!-- RealSense → perception (up) and → aruco (down); shared /image_raw label -->
+  <path class="edge" d="M 210 240 L 250 175"/>
+  <path class="edge" d="M 210 280 L 250 290"/>
+  <text class="edge-label" x="215" y="263">/image_raw</text>
+
+  <!-- perception → orchestrator -->
+  <path class="edge" d="M 490 175 Q 540 175 590 215"/>
+  <text class="edge-label" x="505" y="190">/cube_pose</text>
+  <text class="edge-label" x="505" y="205">/vlm_answer</text>
+
+  <!-- aruco → orchestrator -->
+  <path class="edge" d="M 490 285 Q 540 285 590 265"/>
+  <text class="edge-label" x="500" y="278">/aruco_markers</text>
+
+  <!-- orchestrator ↔ planning -->
+  <path class="edge" d="M 695 180 L 695 110"/>
+  <text class="edge-label" x="615" y="148">IK request</text>
+  <path class="edge" d="M 725 110 L 725 180"/>
+  <text class="edge-label" x="735" y="148">motion plan</text>
+
+  <!-- orchestrator → controllers -->
+  <path class="edge" d="M 710 300 L 710 340"/>
+  <text class="edge-label" x="720" y="325">joint trajectory</text>
+
+  <!-- controllers → arm -->
+  <path class="edge" d="M 710 420 L 710 460"/>
+  <text class="edge-label" x="720" y="445">commands</text>
+
+  <!-- ===== Legend ===== -->
+  <g transform="translate(30, 565)">
+    <rect class="box box-hw" x="0"   y="-14" width="24" height="18"/>
+    <text class="sub" x="32"  y="0">Hardware</text>
+    <rect class="box" x="120" y="-14" width="24" height="18"/>
+    <text class="sub" x="152" y="0">ROS 2 module</text>
+    <rect class="box box-accent" x="260" y="-14" width="24" height="18"/>
+    <text class="sub" x="292" y="0">Orchestrator</text>
+  </g>
+</svg>

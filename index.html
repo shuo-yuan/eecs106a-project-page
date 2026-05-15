@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RoboMath — EECS/BioE/MechE C106A/206A, Spring 2026</title>
+  <meta name="description" content="An end-to-end robotic pipeline that perceives an unfinished math equation on a whiteboard, solves it with a vision-language model, and writes the answer with a UR7e arm." />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ===================== NAV ===================== -->
+<header class="site-nav">
+  <div class="nav-inner">
+    <a class="brand" href="#top">RoboMath</a>
+    <nav>
+      <a href="#introduction">Introduction</a>
+      <a href="#design">Design</a>
+      <a href="#implementation">Implementation</a>
+      <a href="#results">Results</a>
+      <a href="#conclusion">Conclusion</a>
+      <a href="#team">Team</a>
+      <a href="#materials">Materials</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ===================== HERO ===================== -->
+<section id="top" class="hero">
+  <div class="hero-inner">
+    <p class="eyebrow">EECS / BioE / MechE C106A / 206A · Spring 2026 · Final Project</p>
+    <h1>RoboMath</h1>
+    <p class="tagline">
+      A UR7e arm that <em>sees</em> an unfinished equation,
+      <em>solves</em> it with a vision-language model, and <em>writes</em> the
+      answer back.
+    </p>
+    <p class="byline">Alex Aney · Shu Yuan · Natalie Wang · Yolanda Wei</p>
+
+    <!-- TODO: Replace VIDEO_ID with the YouTube ID of your hero/demo clip (unlisted is fine) -->
+    <div class="video-frame hero-video">
+      <iframe
+        src="https://www.youtube.com/embed/jNupUncLBbE"
+        title="RoboMath — demo"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen
+      ></iframe>
+    </div>
+  </div>
+</section>
+
+<main>
+
+<!-- ===================== 1. INTRODUCTION ===================== -->
+<section id="introduction" class="section">
+  <h2><span class="num">1.</span> Introduction</h2>
+
+  <h3>Goal</h3>
+  <p>
+    Our goal is to build an end-to-end robotic system that observes an unfinished mathematical equation on the desk, determines the missing solution, and physically writes the answer back to the answer area. Concretely, the robot must (1) <strong>perceive</strong> the equation and the relevant objects in the scene, (2) <strong>reason</strong> about the mathematical content of the equation using an external vision-language model, (3) <strong>locate and grasp</strong> a whiteboard marker, and (4) <strong>execute a writing motion</strong> that places the solution in the correct location on the board. The whole system is autonomous and does not require any manual intervention.
+  </p>
+
+  <h3>Why this is interesting</h3>
+  <p>
+    The task looks simple from the outside, but it reqires all perception, planning, and actuation. To make it work, we have to:
+  </p>
+  <ul>
+    <li>
+      <strong>Read handwritten equations.</strong> Handwritten equations are
+      noisy, unevenly spaced, and not constrained to a grid. We use an external
+      vision-language model to read them robustly.
+    </li>
+    <li>
+      <strong>Localize a thin, low-contrast marker.</strong> A whiteboard
+      marker is a small cylinder that the gripper has to find, approach, and
+      grasp without colliding with the table or the board.
+    </li>
+    <li>
+      <strong>Register two frames precisely.</strong> The writing pose has to
+      be expressed in the answer sheet's frame, not the robot's — so we rely on
+      ArUco markers on the board for a stable visual reference.
+    </li>
+    <li>
+      <strong>Trace strokes on a real surface.</strong> Writing requires
+      compliant, in-contact motion against an unmodeled surface, with enough
+      down-force to make a mark but not enough to stall the arm.
+    </li>
+  </ul>
+
+  <h3>Real-world applications</h3>
+  <p>
+    The pipeline is a small instance of a much larger class of problems:
+    <strong>visually-grounded manipulation on flat surfaces driven by a
+    reasoning model</strong>. The same building blocks transfer to:
+  </p>
+  <ul>
+    <li>Automated lab notebooks and chalkboard tutors that can <em>both</em> read what a student wrote and respond on the same surface.</li>
+    <li>Assistive technology that lets a robot fill in forms, sign documents, or annotate diagrams for users with limited mobility.</li>
+    <li>Surgical and lab robotics more broadly: any setting where a sensor reads a state, a reasoning model decides what to do, and a manipulator executes a precise motion on a fragile surface.</li>
+  </ul>
+</section>
+
+<!-- ===================== 2. DESIGN ===================== -->
+<section id="design" class="section">
+  <h2><span class="num">2.</span> Design</h2>
+
+  <h3>Design criteria</h3>
+  <p>
+    Before choosing an architecture we fixed the criteria the system had to meet:
+  </p>
+  <ul>
+    <li><strong>End-to-end autonomy.</strong> From "image of equation" to "answer on the sheet" with no human in the loop.</li>
+    <li><strong>Position-tolerant.</strong> The answer sheet and the marker do not need to be in a fixed, hard-coded position; the system should work for a reasonable range of positions on the table.</li>
+    <li><strong>Safe.</strong> All motion is planned through MoveIt with joint-limit and collision checks; we never command a raw joint trajectory that hasn't been validated.</li>
+  </ul>
+
+  <h3>Architecture</h3>
+  <p>
+    We split the system into four ROS 2 packages that communicate over topics
+    and services. Each module has a single responsibility, so we could develop
+    and test them in parallel:
+  </p>
+
+  <figure class="diagram">
+    <!-- TODO: Replace with your real architecture diagram (SVG or PNG) -->
+    <img src="assets/diagrams/architecture.svg?v=2" alt="System architecture diagram showing perception, planning, ArUco, and visual servoing modules connected through ROS 2 topics." />
+    <figcaption>Figure 1. System architecture. The RealSense feeds both the perception node (point cloud + VLM) and the ArUco node. Perception publishes the marker pose on <code>/cube_pose</code>; ArUco publishes the reference frame of the answer sheet; visual_servoing consumes both and commands MoveIt to plan and execute the grasp and writing motions.</figcaption>
+  </figure>
+
+  <ol class="modules">
+    <li>
+      <strong>Perception</strong> — processes RealSense depth + RGB, filters
+      the point cloud to the workspace, isolates the marker as a cluster, and
+      runs a vision-language model on the RGB image to read the equation and
+      produce the missing digit.
+    </li>
+    <li>
+      <strong>ArUco detection</strong> — provides a stable reference frame for
+      the answer sheet. An ArUco marker on the sheet lets us express stroke
+      coordinates in the sheet's frame rather than the camera's.
+    </li>
+    <li>
+      <strong>Planning &amp; IK</strong> — wraps MoveIt's <code>GetPositionIK</code>
+      and <code>GetMotionPlan</code> services so the high-level pipeline can ask
+      for "go to this Cartesian pose" without managing joint constraints itself.
+    </li>
+    <li>
+      <strong>Visual servoing</strong> — the unified pipeline that
+      sequences <em>sense → grasp → lift → move to answer sheet → draw</em>, and that
+      converts each digit 0–9 into a hard-coded sequence of waypoints in the
+      answer sheet frame.
+    </li>
+  </ol>
+
+  <h3>Trade-offs</h3>
+  <ul>
+    <li>
+      <strong>External VLM vs. classical OCR.</strong> Classical OCR is faster and free
+      to run, but it is brittle to handwriting style, lighting, and the
+      symbols used in math. We accepted the external VLM's higher latency and
+      API cost in exchange for far better recognition robustness and its ability to solve the problem directly.
+    </li>
+    <li>
+      <strong>Hard-coded straight-line strokes vs. learned handwriting.</strong> Each
+      digit is a fixed sequence of waypoints in the board frame. This is
+      far less expressive than a learned trajectory, but it is deterministic,
+      reproducible, and easy to debug, which is important when our writing surface and
+      time budget are limited.
+    </li>
+    <li>
+      <strong>MoveIt over hand-rolled IK.</strong> MoveIt adds latency and a
+      lot of moving parts, but it gives us collision-aware planning and a
+      validated trajectory format that the UR7e controllers expect.
+    </li>
+  </ul>
+
+  <h3>Impact on robustness, durability, and efficiency</h3>
+  <p>
+    These choices shape how the system performs in a real engineering setting:
+  </p>
+  <ul>
+    <li>
+      <strong>Robustness</strong> comes from layering a strong perception
+      front-end (VLM + ArUco) on top of deterministic motion primitives. When
+      a module fails it fails visibly — bad VLM output is a wrong digit, a
+      missing ArUco is a planning error — rather than corrupting downstream
+      modules silently.
+    </li>
+    <li>
+      <strong>Durability</strong> of the integration is high because every
+      module talks over named ROS topics or services. Swapping the VLM
+      provider, the camera, or the IK backend is a configuration change, not
+      a rewrite.
+    </li>
+    <li>
+      <strong>Efficiency</strong> is bounded by MoveIt planning and the VLM; 
+      the rest of the pipeline runs in real time on the RealSense's native frame rate.
+      We trade some end-to-end speed for the ability to demo and debug each stage independently.
+    </li>
+  </ul>
+</section>
+
+<!-- ===================== 3. IMPLEMENTATION ===================== -->
+<section id="implementation" class="section">
+  <h2><span class="num">3.</span> Implementation</h2>
+
+  <h3>Hardware</h3>
+  <!-- TODO: Add hardware photos (close-up of UR7e + gripper, RealSense mount, whiteboard with ArUco). -->
+  <div class="figure-grid">
+    <figure>
+      <img src="assets/images/ur7e.png" alt="UR7e workspace with whiteboard and marker." />
+      <figcaption>Figure 2. The UR7e arm.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/images/maker_box.png" alt="Close-up of the parallel gripper holding the marker." />
+      <figcaption>Figure 3. 3D-printed maker box.</figcaption>
+    </figure>
+  </div>
+
+  <h3>Parts list</h3>
+  <table class="parts">
+    <thead><tr><th>Part</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>Universal Robots UR7e</td><td>6-DoF arm performing all reaching, grasping, and writing motions.</td></tr>
+      <tr><td>Parallel gripper</td><td>End-effector that grasps the whiteboard marker with the marker box.</td></tr>
+      <tr><td>RealSense Camera</td><td>RGB-D camera providing both color frames for the VLM and point clouds for marker localization.</td></tr>
+      <tr><td>Marker and answer sheet</td><td>Writing substrate and the object to be grasped.</td></tr>
+      <tr><td>ArUco tag</td><td>Stable 6-DoF reference frame on the answer sheet for the writing pose.</td></tr>
+      <tr><td>Maker box</td><td>3D-printed box that holds the marker.</td></tr>
+      <tr><td>Maker stand</td><td>3D-printed stand that holds the maker.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Software</h3>
+  <p>
+    The codebase is organized as four ROS 2 packages plus a small interfaces
+    package. The entire stack is launched by
+    <code>ros2 launch planning project_stack.launch.py</code>, which brings up
+    the RealSense, the perception node, the planning/IK node, the
+    visual_servoing TF broadcaster, the ArUco recognition pipeline, and MoveIt.
+  </p>
+
+  <figure class="diagram">
+    <!-- TODO: Replace with a software/topic flowchart -->
+    <img src="assets/diagrams/software_flow.svg?v=2" alt="Software flowchart showing ROS 2 topics and services between modules." />
+    <figcaption>Figure 4. ROS 2 topic/service graph. <code>process_pointcloud</code> publishes the marker centroid on <code>/cube_pose</code> and the VLM result on <code>/answer</code>; <code>aruco_node</code> broadcasts the ArUco marker as a TF frame consumed via the orchestrator's TF buffer; <code>project_pipeline</code> calls MoveIt's <code>/compute_ik</code> and <code>/plan_kinematic_path</code> services, toggles the gripper through <code>/toggle_gripper</code>, and dispatches joint trajectories to <code>/scaled_joint_trajectory_controller/follow_joint_trajectory</code>.</figcaption>
+  </figure>
+
+  <h4>perception</h4>
+  <p>
+    <code>process_pointcloud.py</code> subscribes to
+    <code>/camera/camera/depth/color/points</code>, transforms the cloud into
+    <code>base_link</code>, crops to the workspace bounds, and filters the
+    surviving points to publish a <code>PointStamped</code> on
+    <code>/cube_pose</code>. The same node also receives the latest RGB frame,
+    encodes it as base64, and calls a vision-language model (OpenAI API) with
+    a prompt that asks for the missing digit in the equation. The VLM's answer
+    is republished on a <code>std_msgs/String</code> topic so the orchestrator
+    knows which glyphs to draw.
+  </p>
+
+  <h4>planning</h4>
+  <p>
+    Wraps MoveIt's IK and motion-plan services into a node
+    (<code>ik.py</code>) that downstream code can call without owning joint
+    state itself. <code>static_tf_transform.py</code> publishes a fixed
+    transform from the UR7e wrist to the color optical frame so depth points
+    register correctly with the arm's frame tree.
+  </p>
+
+  <h4>visual_servoing</h4>
+  <p>
+    <code>project_main.py</code> is the entry point. It runs the unified
+    pipeline:
+  </p>
+  <ol>
+    <li><strong>Sense.</strong> Wait for a <code>/cube_pose</code> message and cache the latest ArUco transform.</li>
+    <li><strong>Grasp.</strong> Open the gripper, plan a pre-grasp pose above the marker via IK, descend, close the gripper, and lift.</li>
+    <li><strong>Approach the board.</strong> Plan a motion to a "ready-to-write" pose expressed in the ArUco frame.</li>
+    <li><strong>Write.</strong> Convert the VLM's digit string into a sequence of pre-defined stroke waypoints (digit 0–9), transform each waypoint into the robot base frame, and dispatch a <code>FollowJointTrajectory</code> action.</li>
+    <li><strong>Retract.</strong> Lift off the writing area.</li>
+  </ol>
+
+  <pre><code># Launch the full stack
+ros2 launch planning project_stack.launch.py
+
+# Run the unified pipeline
+ros2 run visual_servoing project_main --ar_marker 1
+
+# Draw 42 without using the answer from the VLM, used for debugging
+ros2 run visual_servoing project_main --ar_marker 1 --digit 42.
+</code></pre>
+
+  <h3>How the complete system works (step-by-step)</h3>
+  <ol class="steps">
+    <li>The RealSense camera streams synchronized color + depth information.</li>
+    <li><strong>perception</strong> filters the point cloud to the workspace bounding box, computes the centroid of the remaining points, and publishes it as the marker pose on <code>/cube_pose</code>.</li>
+    <li>In parallel, <strong>perception</strong> sends the latest RGB frame to the VLM with a prompt asking for the missing digit; the answer is cached.</li>
+    <li><strong>ros2_aruco</strong> detects the ArUco maker on the whiteboard and publishes its pose; <strong>planning</strong> exposes IK and motion-plan services backed by MoveIt.</li>
+    <li><strong>visual_servoing</strong> receives the cube pose, plans a pre-grasp pose ~40 cm above the marker, descends to the grasp pose, closes the gripper, and lifts.</li>
+    <li>The visual_servoing node transforms each stroke waypoint from the answer sheet (ArUco) frame into the base frame, plans a motion to it, and executes via <code>FollowJointTrajectory</code>.</li>
+    <li>After the final stroke the arm retracts to a home pose, completing the loop.</li>
+  </ol>
+</section>
+
+<!-- ===================== 4. RESULTS ===================== -->
+<section id="results" class="section">
+  <h2><span class="num">4.</span> Results</h2>
+
+  <h3>What the system did</h3>
+  <p>The system was able to solve math expressions with answers being integers between 0 and 99. Below are some examples of the system's performance. The video demonstration is at the top of the page.</p>
+
+  <div class="figure-grid">
+    <figure>
+      <img src="assets/images/result_1.JPG" alt="Result example 1." />
+      <figcaption>Figure 5.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/images/result_2.JPG" alt="Result example 2." />
+      <figcaption>Figure 6.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/images/result_3.JPG" alt="Result example 3." />
+      <figcaption>Figure 7.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/images/result_4.JPG" alt="Result example 4." />
+      <figcaption>Figure 8.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/images/result_5.JPG" alt="Result example 5." />
+      <figcaption>Figure 9.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/images/result_6.JPG" alt="Result example 6." />
+      <figcaption>Figure 10.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ===================== 5. CONCLUSION ===================== -->
+<section id="conclusion" class="section">
+  <h2><span class="num">5.</span> Conclusion</h2>
+
+  <h3>How well did we meet our design criteria?</h3>
+  <ul>
+    <li>
+      <strong>End-to-end autonomy.</strong> Met. A single command launches the
+      stack and the pipeline runs from camera capture to ink on the sheet
+      without manual intervention: <code>process_pointcloud</code> grabs the
+      RGB frame, the VLM returns a digit on <code>/answer</code>,
+      <code>project_pipeline</code> plans through MoveIt, and the UR7e writes
+      the result.
+    </li>
+    <li>
+      <strong>Position-tolerance.</strong> Mostly met. The answer sheet does
+      not need to be in a fixed location — the ArUco tag is detected
+      live and the writing pose is expressed in the sheet's frame, so the
+      sheet can be shifted or re-oriented on the table between runs. Marker
+      position tolerance is more limited: the center of the filtered point cloud may slightly drift from the marker, which may cause the pre-grasp pose to be incorrect, and therefore leading to the failure of the grasp. However, this is a rare case.
+    </li>
+    <li>
+      <strong>Safety.</strong> Met. Every motion goes through MoveIt's
+      <code>/compute_ik</code> and <code>/plan_kinematic_path</code> services
+      before execution, so joint-limit and self-collision checks run on
+      every waypoint. A planning failure aborts the run rather than
+      commanding the arm directly.
+    </li>
+  </ul>
+
+  <h3>Difficulties</h3>
+  <ul>
+    <li>
+      <strong>Re-orienting a flat marker risked collisions.</strong> If the
+      whiteboard marker was lying flat on the table, the gripper had to grasp
+      it and rotate it ~90° to a vertical writing pose, and the swing motion
+      may produce table collisions during MoveIt
+      planning. We solved this by 3D-printing a marker stand that holds the
+      marker upright on the table, so the gripper can approach a known
+      vertical pre-grasp pose directly and skip the re-orientation step.
+    </li>
+    <li>
+      <strong>Unstable z-offset against the writing surface.</strong> Small
+      errors in the camera-to-base transform and in the sheet's z-height made
+      the marker tip occasionally press too hard into the table or float
+      above the paper, which either stalled the controller or skipped strokes.
+      We solved this by 3D-printing a marker holder with a spring inside —
+      the spring absorbs vertical error, so the tip stays in
+      contact with the surface across a range of commanded z values without
+      jamming the arm.
+    </li>
+    <li>
+      <strong>Curved digits are hard to draw on a real surface.</strong>
+      Smoothly traced glyphs (the natural shape of handwritten 2, 3, 5, 6, 8,
+      9, 0) require many short waypoints and tight contact control. We simplified the alphabet by hard-coding each digit 0–9 as a small set of straight-line segments in the answer sheet frame.
+    </li>
+  </ul>
+
+  <h3>Flaws, hacks, and what we'd do with more time</h3>
+  <ul>
+    <li>
+      <strong>Answer-area offset is hard-coded.</strong> The position of the
+      answer area relative to the ArUco fiducial is a fixed offset baked into
+      <code>project_main</code>. If the answer area is re-printed at a
+      different position on the sheet, the offset has to be updated by hand.
+      With more time we'd detect the answer area directly (a second ArUco tag,
+      a printed bounding box, or a VLM call returning pixel coordinates we
+      then back-project into the sheet frame).
+    </li>
+    <li>
+      <strong>Limited symbol set.</strong> The system currently only writes
+      digits 0–9 as straight-line glyphs, so it can only answer questions
+      whose answer is an integer. A natural extension is to expand the
+      alphabet: operators (<code>+</code>, <code>−</code>, <code>=</code>),
+      decimal points, negative signs, and eventually letters by adding
+      more hard-coded stroke sequences or generating them from a font.
+    </li>
+  </ul>
+</section>
+
+<!-- ===================== 6. TEAM ===================== -->
+<section id="team" class="section">
+  <h2><span class="num">6.</span> Team</h2>
+
+  <div class="team-grid">
+    <article class="team-card">
+      <!-- TODO: Drop a headshot in assets/images/team_alex.jpg -->
+      <img src="assets/images/team_alex.jpeg" alt="Alex Aney" style="object-position: center 20%;" />
+      <h3>Alex Aney</h3>
+      <p class="bio">
+        Undergraduate in EECS and Math. Loves how robotics lets theory come to
+        life and builds things in his free time.
+      </p>
+      <p class="contrib"><strong>Contributions:</strong> Designed and hard-coded the straight-line stroke sequences for digits 0–9 in the answer sheet frame, tuned the writing waypoints so the marker tip traces legible glyphs.</p>
+    </article>
+
+    <article class="team-card">
+      <img src="assets/images/team_shu.jpg" alt="Shu Yuan" />
+      <h3>Shu Yuan</h3>
+      <p class="bio">
+        Senior in CS and Applied Mathematics. Researches LLM agents and
+        post-training, and is interested in applying deep learning to robotics.
+      </p>
+      <p class="contrib"><strong>Contributions:</strong> Integrated the vision-language model into the perception node — the RGB-to-equation prompt, the API call, and publishing the parsed result on <code>/answer</code>.</p>
+    </article>
+
+    <article class="team-card">
+      <img src="assets/images/team_natalie.jpeg" alt="Natalie Wang" style="object-position: center 20%;" />
+      <h3>Natalie Wang</h3>
+      <p class="bio">
+        Second-year in Mechanical Engineering, interested in surgical robotics.
+      </p>
+      <p class="contrib"><strong>Contributions:</strong> Hardware mounting and 3D-printed parts: the spring-loaded marker holder that absorbs vertical error during writing.</p>
+    </article>
+
+    <article class="team-card">
+      <img src="assets/images/team_yolanda.jpg" alt="Yolanda Wei" />
+      <h3>Yolanda Wei</h3>
+      <p class="bio">
+        Undergraduate in ECE and Math, interested in applying robotics and ML
+        to societal problems.
+      </p>
+      <p class="contrib"><strong>Contributions:</strong> ArUco integration, camera-to-base calibration, and the visual_servoing orchestrator that ties perception, MoveIt planning, and trajectory execution into the end-to-end pipeline.</p>
+    </article>
+  </div>
+</section>
+
+<!-- ===================== 7. ADDITIONAL MATERIALS ===================== -->
+<section id="materials" class="section">
+  <h2><span class="num">7.</span> Additional Materials</h2>
+
+  <ul class="materials">
+    <li>
+      <strong>Source code on GitHub:</strong>
+      <!-- TODO: Replace with the public repo URL -->
+      <a href="https://github.com/shuo-yuan/eecs106a-project" target="_blank" rel="noreferrer">github.com/shuo-yuan/eecs106a-project</a>
+    </li>
+    <li>
+      <strong>Launch files:</strong>
+      <code>project/src/planning/launch/project_stack.launch.py</code>,
+      <code>project/src/planning/launch/lab5_bringup.launch.py</code>
+    </li>
+  </ul>
+</section>
+
+</main>
+
+<footer class="site-footer">
+  <p>EECS / BioE / MechE C106A / 206A · UC Berkeley · Spring 2026</p>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>

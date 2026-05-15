@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 440" font-family="-apple-system, system-ui, sans-serif" font-size="13">
+  <defs>
+    <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#003262"/>
+    </marker>
+    <style>
+      .node      { fill: #f6f8fa; stroke: #003262; stroke-width: 1.4; rx: 8; ry: 8; }
+      .node-acc  { fill: #FFF8E1; stroke: #FDB515; stroke-width: 1.4; rx: 8; ry: 8; }
+      .node-srv  { fill: #EEF4FA; stroke: #003262; stroke-width: 1.4; stroke-dasharray: 5 4; rx: 8; ry: 8; }
+      .topic     { fill: #FFF8E1; stroke: #FDB515; rx: 14; ry: 14; }
+      .lbl       { fill: #003262; font-weight: 600; }
+      .sub       { fill: #5a6470; font-size: 11px; }
+      .mono      { fill: #5a6470; font-size: 11px; font-family: ui-monospace, Menlo, monospace; }
+      .edge      { stroke: #003262; stroke-width: 1.3; fill: none; marker-end: url(#a2); }
+      .edge-srv  { stroke: #003262; stroke-width: 1.3; fill: none; marker-end: url(#a2); stroke-dasharray: 5 4; }
+    </style>
+  </defs>
+
+  <!-- ============ Left column: sensor + perception nodes ============ -->
+  <rect class="node" x="20"  y="30"  width="180" height="60"/>
+  <text class="lbl" x="110" y="55"  text-anchor="middle">realsense2_camera</text>
+  <text class="sub" x="110" y="75"  text-anchor="middle">D-series driver</text>
+
+  <rect class="node" x="20"  y="140" width="180" height="70"/>
+  <text class="lbl" x="110" y="165" text-anchor="middle">process_pointcloud</text>
+  <text class="sub" x="110" y="183" text-anchor="middle">perception + VLM</text>
+  <text class="mono" x="110" y="200" text-anchor="middle">realsense_pc_subscriber</text>
+
+  <rect class="node" x="20"  y="250" width="180" height="60"/>
+  <text class="lbl" x="110" y="275" text-anchor="middle">aruco_node</text>
+  <text class="sub" x="110" y="295" text-anchor="middle">ros2_aruco</text>
+
+  <!-- ============ Center: orchestrator ============ -->
+  <rect class="node-acc" x="420" y="110" width="220" height="130"/>
+  <text class="lbl" x="530" y="138" text-anchor="middle">project_pipeline</text>
+  <text class="mono" x="530" y="156" text-anchor="middle">visual_servoing.project_main</text>
+  <text class="sub" x="530" y="180" text-anchor="middle">orchestrator</text>
+  <text class="sub" x="530" y="198" text-anchor="middle">sense → grasp → write</text>
+  <text class="sub" x="530" y="216" text-anchor="middle">stroke sequence per digit</text>
+
+  <!-- ============ Right: MoveIt + gripper services ============ -->
+  <rect class="node-srv" x="760" y="40" width="200" height="80"/>
+  <text class="lbl" x="860" y="65"  text-anchor="middle">move_group (MoveIt)</text>
+  <text class="mono" x="860" y="86"  text-anchor="middle">/compute_ik</text>
+  <text class="mono" x="860" y="103" text-anchor="middle">/plan_kinematic_path</text>
+
+  <rect class="node-srv" x="760" y="150" width="200" height="60"/>
+  <text class="lbl" x="860" y="175" text-anchor="middle">gripper node</text>
+  <text class="mono" x="860" y="195" text-anchor="middle">/toggle_gripper</text>
+
+  <!-- ============ Bottom: controller ============ -->
+  <rect class="node" x="420" y="310" width="220" height="80"/>
+  <text class="lbl" x="530" y="338" text-anchor="middle">scaled_joint_trajectory_controller</text>
+  <text class="mono" x="530" y="358" text-anchor="middle">FollowJointTrajectory (action)</text>
+  <text class="sub" x="530" y="378" text-anchor="middle">→ UR7e</text>
+
+  <!-- ============ Topic pills ============ -->
+  <!-- realsense → perception: image + points -->
+  <rect class="topic" x="225" y="50" width="170" height="24"/>
+  <text class="mono" x="310" y="66" text-anchor="middle">/camera/.../image_raw</text>
+
+  <rect class="topic" x="225" y="90" width="170" height="24"/>
+  <text class="mono" x="310" y="106" text-anchor="middle">/depth/color/points</text>
+
+  <!-- perception → orchestrator: /cube_pose, /answer -->
+  <rect class="topic" x="225" y="160" width="110" height="22"/>
+  <text class="mono" x="280" y="176" text-anchor="middle">/cube_pose</text>
+
+  <rect class="topic" x="225" y="190" width="110" height="22"/>
+  <text class="mono" x="280" y="206" text-anchor="middle">/answer</text>
+
+  <!-- aruco → orchestrator: TF -->
+  <rect class="topic" x="225" y="265" width="160" height="24"/>
+  <text class="mono" x="305" y="281" text-anchor="middle">/tf (marker frame)</text>
+
+  <!-- ============ Edges ============ -->
+  <!-- realsense out -->
+  <path class="edge" d="M 200 62  L 225 62"/>
+  <path class="edge" d="M 200 75  L 225 102"/>
+
+  <!-- topic image_raw also feeds aruco_node -->
+  <path class="edge" d="M 310 74  C 310 200 130 200 110 250"/>
+
+  <!-- realsense topics → perception -->
+  <path class="edge" d="M 395 62  C 410 62 410 165 420 170"/>
+  <path class="edge" d="M 395 102 C 410 102 410 175 420 180"/>
+
+  <!-- perception → topic pills -->
+  <path class="edge" d="M 200 170 L 225 170"/>
+  <path class="edge" d="M 200 200 L 225 200"/>
+
+  <!-- topic pills → orchestrator -->
+  <path class="edge" d="M 335 170 L 420 170"/>
+  <path class="edge" d="M 335 200 L 420 200"/>
+
+  <!-- aruco → /tf pill → orchestrator -->
+  <path class="edge" d="M 200 277 L 225 277"/>
+  <path class="edge" d="M 385 277 C 410 277 410 230 420 222"/>
+
+  <!-- orchestrator ↔ move_group (services, dashed) -->
+  <path class="edge-srv" d="M 640 145 L 760 75"/>
+  <path class="edge-srv" d="M 760 95 L 640 165"/>
+
+  <!-- orchestrator → gripper service -->
+  <path class="edge-srv" d="M 640 180 L 760 180"/>
+
+  <!-- orchestrator → controller (action) -->
+  <path class="edge" d="M 530 240 L 530 310"/>
+  <text class="mono" x="538" y="278">follow_joint_trajectory</text>
+
+  <!-- ============ Legend ============ -->
+  <g transform="translate(20, 415)">
+    <rect class="topic" x="0"   y="-14" width="22" height="18"/>
+    <text class="sub" x="30"  y="0">Topic</text>
+    <line x1="100" y1="-5" x2="130" y2="-5" stroke="#003262" stroke-width="1.3" marker-end="url(#a2)"/>
+    <text class="sub" x="140" y="0">Topic / action</text>
+    <line x1="260" y1="-5" x2="290" y2="-5" stroke="#003262" stroke-width="1.3" stroke-dasharray="5 4" marker-end="url(#a2)"/>
+    <text class="sub" x="300" y="0">Service call</text>
+    <rect class="node-acc" x="400" y="-14" width="22" height="18"/>
+    <text class="sub" x="430" y="0">Orchestrator</text>
+  </g>
+</svg>
